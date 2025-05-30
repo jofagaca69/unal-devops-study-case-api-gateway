@@ -1,0 +1,116 @@
+name: CI/CD Healthcare Api Gateway
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }} # Optional, if you want to store project ID as a secret
+  GKE_CLUSTER: cluster-2 # Your GKE cluster name
+  GKE_REGION: us-central1 # Your GKE cluster name
+  GKE_NAMESPACE: default # Namespace where your Angular app will be deployed
+  AR_REGION: us-central1 # Artifact Registry region
+  AR_REPO_NAME: healthcare-api-gateway # Your Artifact Registry repository name
+  IMAGE_NAME: app # Name for your Docker image
+
+jobs:
+  # lint:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+
+  #     - name: Set up Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: "20"
+
+  #     - name: Install Node.js dependencies
+  #       run: npm install
+  #       working-directory: ./app
+
+  #     - name: Run ESLint
+  #       run: npm run lint
+  #       working-directory: ./app
+
+  # test:
+  #   runs-on: ubuntu-latest
+  #   needs: lint
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+
+  #     - name: Set up Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: "20"
+
+  #     - name: Install Node.js dependencies
+  #       run: npm install
+  #       working-directory: ./app
+
+  #     - name: Run tests
+  #       run: npm test -- --watch=false --browsers=ChromeHeadless
+  #       working-directory: ./app
+
+  build-and-deploy:
+    runs-on: ubuntu-latest # Runner environment
+    # needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20" # Or your specific Node.js version
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Angular application
+        run: npm run build -- --configuration=production # Adjust if you have a custom build script
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+
+      - name: Configure Docker to use Artifact Registry
+        run: |
+          gcloud auth configure-docker ${AR_REGION}-docker.pkg.dev
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t ${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO_NAME}/${IMAGE_NAME}:${{ github.sha }} .
+          docker push ${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO_NAME}/${IMAGE_NAME}:${{ github.sha }}
+        id: docker_build_and_push # Give this step an ID to reference its outputs (optional)
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin --quiet
+
+      - name: Get GKE credentials
+        run: |
+          gcloud container clusters get-credentials ${GKE_CLUSTER} --region ${GKE_REGION} --project ${PROJECT_ID}
+
+      - name: Deploy to GKE
+        run: |
+          # Use sed or envsubst to replace the image placeholder in your deployment.yaml
+          # This is needed because GitHub Actions doesn't have a direct 'gke-deploy' equivalent
+          # that replaces image like Cloud Build does out-of-the-box.
+          # We'll use the specific image tag from this build (github.sha).
+          IMAGE_TAG="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO_NAME}/${IMAGE_NAME}:${{ github.sha }}"
+
+          # Replace the placeholder in deployment.yaml
+          sed -i "s|image: \${_IMAGE}|image: ${IMAGE_TAG}|g" kubernetes/deployment.yaml
+
+          # Apply the Kubernetes manifests
+          kubectl apply -f kubernetes/
+        id: deploy_to_gke
