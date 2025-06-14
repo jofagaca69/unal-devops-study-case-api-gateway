@@ -7,13 +7,19 @@ const app = express();
 
 // Configuración de CORS
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || '*', // Permite todos los orígenes por defecto
+  origin: '*', // Permite todos los orígenes por defecto
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-email'],
-  credentials: true
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-email', 'Origin', 'Accept'],
+  exposedHeaders: ['Content-Type', 'Authorization', 'x-user-email'],
+  credentials: true,
+  maxAge: 86400 // 24 horas
 };
 
 app.use(cors(corsOptions));
+
+// Middleware para manejar preflight requests
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 
 const ONPREM_BASE_URL = process.env.ONPREM_BASE_URL || 'http://35.209.18.19:8080';
