@@ -27,28 +27,41 @@ app.all('*', async (req, res) => {
       return res.status(400).json({ error: 'Falta el email del usuario' });
     }
 
-    const check = await axios.post(`${ONPREM_BASE_URL}/checkUser`, { email });
-    const userExistsOnPrem = check.data.exists === true;
+    // 1. Verificar en on-premise
+    const checkOnPrem = await axios.post(`${ONPREM_BASE_URL}/checkUser`, { email });
+    if (checkOnPrem.data.exists === true) {
+      // Si existe en on-premise, reenvía la petición original
+      const response = await axios({
+        method: req.method,
+        url: `${ONPREM_BASE_URL}${req.originalUrl}`,
+        headers: req.headers,
+        data: req.body,
+        validateStatus: () => true
+      });
+      return res.status(response.status).set(response.headers).send(response.data);
+    }
 
-    const baseUrl = userExistsOnPrem ? ONPREM_BASE_URL : GCP_BASE_URL;
-    const targetUrl = `${baseUrl}${req.path}`;
+    // 2. Verificar en GCP
+    const checkGCP = await axios.post(`${GCP_BASE_URL}/checkUser`, { email });
+    if (checkGCP.data.exists === true) {
+      // Si existe en GCP, reenvía la petición original
+      const response = await axios({
+        method: req.method,
+        url: `${GCP_BASE_URL}${req.originalUrl}`,
+        headers: req.headers,
+        data: req.body,
+        validateStatus: () => true
+      });
+      return res.status(response.status).set(response.headers).send(response.data);
+    }
 
-    const response = await axios({
-      method: req.method,
-      url: targetUrl,
-      headers: req.headers,
-      data: req.body,
-      validateStatus: () => true
-    });
-
-    res.status(response.status).set(response.headers).send(response.data);
+    // 3. Si no existe en ninguno
+    return res.status(404).json({ error: 'Usuario no encontrado en ningún backend' });
 
   } catch (err) {
     if (err.response) {
-      // El backend respondió con un error (4xx, 5xx)
       res.status(err.response.status).json(err.response.data);
     } else {
-      // Error de red u otro error inesperado
       res.status(500).json({ error: 'Error interno en el gateway', message: err.message });
     }
   }
