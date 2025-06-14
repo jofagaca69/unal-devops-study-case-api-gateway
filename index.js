@@ -44,8 +44,13 @@ app.all('*', async (req, res) => {
     res.status(response.status).set(response.headers).send(response.data);
 
   } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ error: 'Error interno en el gateway', message: err.message });
+    if (err.response) {
+      // El backend respondió con un error (4xx, 5xx)
+      res.status(err.response.status).json(err.response.data);
+    } else {
+      // Error de red u otro error inesperado
+      res.status(500).json({ error: 'Error interno en el gateway', message: err.message });
+    }
   }
 });
 
