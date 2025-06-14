@@ -16,7 +16,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-const ONPREM_BASE_URL = process.env.ONPREM_BASE_URL || 'http://localhost:3000';
+const ONPREM_BASE_URL = process.env.ONPREM_BASE_URL || 'http://35.209.18.19:8080';
 const GCP_BASE_URL = process.env.GCP_BASE_URL || 'http://localhost:3001';
 
 app.all('*', async (req, res) => {
