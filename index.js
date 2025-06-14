@@ -59,13 +59,13 @@ app.all('*', async (req, res) => {
     // Primero verificar en onpremise
     let baseUrl;
     try {
-      const onPremCheck = await axios.post(`${ONPREM_BASE_URL}/checkUser`, { email });
-      if (onPremCheck.data.exists === true) {
+      const onPremCheck = await axios.post(`${ONPREM_BASE_URL}/checkuser`, { email });
+      if (onPremCheck.data.success && onPremCheck.data.exists) {
         baseUrl = ONPREM_BASE_URL;
       } else {
         // Si no existe en onpremise, verificar en GCP
-        const gcpCheck = await axios.post(`${GCP_BASE_URL}/checkUser`, { email });
-        if (gcpCheck.data.exists === true) {
+        const gcpCheck = await axios.post(`${GCP_BASE_URL}/checkuser`, { email });
+        if (gcpCheck.data.success && gcpCheck.data.exists) {
           baseUrl = GCP_BASE_URL;
         } else {
           return res.status(404).json({
