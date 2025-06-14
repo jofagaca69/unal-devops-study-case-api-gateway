@@ -33,8 +33,8 @@ app.options('*', cors(corsOptions));
 app.use(express.json());
 
 // Asegurarse de que las URLs usen HTTPS
-const ONPREM_BASE_URL = process.env.ONPREM_BASE_URL || 'https://35.209.18.19:8080';
-const GCP_BASE_URL = process.env.GCP_BASE_URL || 'https://35.209.18.19:8080';
+const ONPREM_BASE_URL = process.env.ONPREM_BASE_URL || 'http://35.209.18.19:8080';
+const GCP_BASE_URL = process.env.GCP_BASE_URL || 'http://35.209.18.19:8080';
 
 // Función para propagar headers relevantes
 const propagateHeaders = (sourceHeaders) => {
