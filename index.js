@@ -16,41 +16,108 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-const ONPREM_BASE_URL = process.env.ONPREM_BASE_URL || 'http://35.209.18.19:8080';
+const ONPREM_BASE_URL = process.env.ONPREM_BASE_URL || 'http://localhost:3000';
 const GCP_BASE_URL = process.env.GCP_BASE_URL || 'http://localhost:3001';
+
+// Función para propagar headers relevantes
+const propagateHeaders = (sourceHeaders) => {
+  const headersToPropagate = [
+    'content-type',
+    'authorization',
+    'x-user-email',
+    'x-request-id',
+    'x-correlation-id'
+  ];
+  
+  return headersToPropagate.reduce((acc, header) => {
+    if (sourceHeaders[header]) {
+      acc[header] = sourceHeaders[header];
+    }
+    return acc;
+  }, {});
+};
 
 app.all('*', async (req, res) => {
   try {
     const email = req.body?.email || req.query?.email || req.headers['x-user-email'];
 
     if (!email) {
-      return res.status(400).json({ error: 'Falta el email del usuario' });
+      return res.status(400).json({ 
+        error: 'Falta el email del usuario',
+        status: 400,
+        message: 'Falta el email del usuario'
+      });
     }
 
-    const check = await axios.post(`${ONPREM_BASE_URL}/checkUser`, { email });
-    const userExistsOnPrem = check.data.exists === true;
+    // Primero verificar en onpremise
+    let baseUrl;
+    try {
+      const onPremCheck = await axios.post(`${ONPREM_BASE_URL}/checkUser`, { email });
+      if (onPremCheck.data.exists === true) {
+        baseUrl = ONPREM_BASE_URL;
+      } else {
+        // Si no existe en onpremise, verificar en GCP
+        const gcpCheck = await axios.post(`${GCP_BASE_URL}/checkUser`, { email });
+        if (gcpCheck.data.exists === true) {
+          baseUrl = GCP_BASE_URL;
+        } else {
+          return res.status(404).json({
+            error: 'Usuario no encontrado',
+            status: 404,
+            message: 'El usuario no existe en ningún ambiente'
+          });
+        }
+      }
+    } catch (checkError) {
+      console.error('Error al verificar usuario:', checkError.message);
+      return res.status(500).json({
+        error: 'Error al verificar el usuario',
+        status: 500,
+        message: 'Error al verificar la existencia del usuario'
+      });
+    }
 
-    const baseUrl = userExistsOnPrem ? ONPREM_BASE_URL : GCP_BASE_URL;
     const targetUrl = `${baseUrl}${req.path}`;
 
     const response = await axios({
       method: req.method,
       url: targetUrl,
-      headers: req.headers,
+      headers: propagateHeaders(req.headers),
       data: req.body,
       validateStatus: () => true
     });
 
-    res.status(response.status).set(response.headers).send(response.data);
+    // Propagar todos los headers de la respuesta
+    Object.entries(response.headers).forEach(([key, value]) => {
+      res.set(key, value);
+    });
+
+    // Mantener el formato de respuesta consistente
+    const responseData = response.data;
+    if (typeof responseData === 'object') {
+      responseData.status = response.status;
+    }
+
+    res.status(response.status).json(responseData);
 
   } catch (err) {
+    console.error('Error en el gateway:', err.message);
+    
+    // Si el error viene del backend, propagar su mensaje
     if (err.response) {
-      // El backend respondió con un error (4xx, 5xx)
-      res.status(err.response.status).json(err.response.data);
-    } else {
-      // Error de red u otro error inesperado
-      res.status(500).json({ error: 'Error interno en el gateway', message: err.message });
+      return res.status(err.response.status).json({
+        error: err.response.data.error || 'Error en el servidor',
+        status: err.response.status,
+        message: err.response.data.message || err.response.data.error || 'Error en el servidor'
+      });
     }
+
+    // Error interno del gateway
+    res.status(500).json({
+      error: 'Error interno en el gateway',
+      status: 500,
+      message: 'Error interno en el gateway'
+    });
   }
 });
 
