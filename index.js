@@ -5,6 +5,16 @@ require('dotenv').config();
 
 const app = express();
 
+// Función para logging estructurado
+const logRequest = (type, data) => {
+  const timestamp = new Date().toISOString();
+  console.log(JSON.stringify({
+    timestamp,
+    type,
+    ...data
+  }));
+};
+
 // Configuración de CORS
 const corsOptions = {
   origin: '*', // Permite todos los orígenes por defecto
@@ -45,10 +55,23 @@ const propagateHeaders = (sourceHeaders) => {
 };
 
 app.all('*', async (req, res) => {
+  const requestId = Date.now().toString();
+  logRequest('INCOMING_REQUEST', {
+    requestId,
+    method: req.method,
+    path: req.path,
+    email: req.body?.email || req.query?.email || req.headers['x-user-email'],
+    headers: req.headers
+  });
+
   try {
     const email = req.body?.email || req.query?.email || req.headers['x-user-email'];
 
     if (!email) {
+      logRequest('VALIDATION_ERROR', {
+        requestId,
+        error: 'Email no proporcionado'
+      });
       return res.status(400).json({ 
         error: 'Falta el email del usuario',
         status: 400,
@@ -59,15 +82,53 @@ app.all('*', async (req, res) => {
     // Primero verificar en onpremise
     let baseUrl;
     try {
+      logRequest('CHECKING_ONPREMISE', {
+        requestId,
+        email,
+        url: `${ONPREM_BASE_URL}/checkuser`
+      });
+
       const onPremCheck = await axios.post(`${ONPREM_BASE_URL}/checkuser`, { email });
+      
+      logRequest('ONPREMISE_RESPONSE', {
+        requestId,
+        status: onPremCheck.status,
+        data: onPremCheck.data
+      });
+
       if (onPremCheck.data.success && onPremCheck.data.exists) {
         baseUrl = ONPREM_BASE_URL;
+        logRequest('USER_FOUND_ONPREMISE', {
+          requestId,
+          userId: onPremCheck.data.userId
+        });
       } else {
         // Si no existe en onpremise, verificar en GCP
+        logRequest('CHECKING_GCP', {
+          requestId,
+          email,
+          url: `${GCP_BASE_URL}/checkuser`
+        });
+
         const gcpCheck = await axios.post(`${GCP_BASE_URL}/checkuser`, { email });
+        
+        logRequest('GCP_RESPONSE', {
+          requestId,
+          status: gcpCheck.status,
+          data: gcpCheck.data
+        });
+
         if (gcpCheck.data.success && gcpCheck.data.exists) {
           baseUrl = GCP_BASE_URL;
+          logRequest('USER_FOUND_GCP', {
+            requestId,
+            userId: gcpCheck.data.userId
+          });
         } else {
+          logRequest('USER_NOT_FOUND', {
+            requestId,
+            email
+          });
           return res.status(404).json({
             error: 'Usuario no encontrado',
             status: 404,
@@ -76,7 +137,11 @@ app.all('*', async (req, res) => {
         }
       }
     } catch (checkError) {
-      console.error('Error al verificar usuario:', checkError.message);
+      logRequest('CHECK_ERROR', {
+        requestId,
+        error: checkError.message,
+        stack: checkError.stack
+      });
       return res.status(500).json({
         error: 'Error al verificar el usuario',
         status: 500,
@@ -85,6 +150,12 @@ app.all('*', async (req, res) => {
     }
 
     const targetUrl = `${baseUrl}${req.path}`;
+    logRequest('FORWARDING_REQUEST', {
+      requestId,
+      method: req.method,
+      targetUrl,
+      baseUrl
+    });
 
     const response = await axios({
       method: req.method,
@@ -92,6 +163,13 @@ app.all('*', async (req, res) => {
       headers: propagateHeaders(req.headers),
       data: req.body,
       validateStatus: () => true
+    });
+
+    logRequest('BACKEND_RESPONSE', {
+      requestId,
+      status: response.status,
+      headers: response.headers,
+      data: response.data
     });
 
     // Propagar todos los headers de la respuesta
@@ -105,10 +183,21 @@ app.all('*', async (req, res) => {
       responseData.status = response.status;
     }
 
+    logRequest('SENDING_RESPONSE', {
+      requestId,
+      status: response.status,
+      data: responseData
+    });
+
     res.status(response.status).json(responseData);
 
   } catch (err) {
-    console.error('Error en el gateway:', err.message);
+    logRequest('ERROR', {
+      requestId,
+      error: err.message,
+      stack: err.stack,
+      response: err.response?.data
+    });
     
     // Si el error viene del backend, propagar su mensaje
     if (err.response) {
@@ -131,5 +220,8 @@ app.all('*', async (req, res) => {
 // Inicia el servidor en el puerto que Cloud Run espera
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`API Gateway escuchando en puerto ${PORT}`);
+  logRequest('SERVER_START', {
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
