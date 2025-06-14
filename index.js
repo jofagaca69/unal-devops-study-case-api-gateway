@@ -1,11 +1,23 @@
 const express = require('express');
 const axios = require('axios');
+const cors = require('cors');
+require('dotenv').config();
 
 const app = express();
+
+// Configuración de CORS
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN || '*', // Permite todos los orígenes por defecto
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-email'],
+  credentials: true
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
-const ONPREM_BASE_URL = 'https://onprem-backend.example.com';
-const GCP_BASE_URL = 'https://gcp-backend.example.com';
+const ONPREM_BASE_URL = process.env.ONPREM_BASE_URL || 'http://localhost:3000';
+const GCP_BASE_URL = process.env.GCP_BASE_URL || 'http://localhost:3001';
 
 app.all('*', async (req, res) => {
   try {
@@ -33,12 +45,12 @@ app.all('*', async (req, res) => {
 
   } catch (err) {
     console.error(err.message);
-    res.status(500).json({ error: 'Error interno en el gateway' });
+    res.status(500).json({ error: 'Error interno en el gateway', message: err.message });
   }
 });
 
 // Inicia el servidor
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8081;
 app.listen(PORT, () => {
   console.log(`API Gateway escuchando en puerto ${PORT}`);
 });

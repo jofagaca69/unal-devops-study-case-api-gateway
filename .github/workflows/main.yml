@@ -13,6 +13,8 @@ env:
   AR_REGION: us-central1 # Artifact Registry region
   AR_REPO_NAME: healthcare-api-gateway # Your Artifact Registry repository name
   IMAGE_NAME: app # Name for your Docker image
+  ONPREM_BASE_URL: ${{ secrets.ONPREM_BASE_URL }}
+  GCP_BASE_URL: ${{ secrets.GCP_BASE_URL }}
 
 jobs:
   # lint:
