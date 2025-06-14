@@ -17,66 +17,40 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 const ONPREM_BASE_URL = process.env.ONPREM_BASE_URL || 'http://35.209.18.19:8080';
-const GCP_BASE_URL = process.env.GCP_BASE_URL || 'http://35.209.18.19:8080';
-
-const axiosConfig = {
-  timeout: 5000, // 5 segundos
-  validateStatus: () => true
-};
+const GCP_BASE_URL = process.env.GCP_BASE_URL || 'http://localhost:3001';
 
 app.all('*', async (req, res) => {
-  console.log(`\n--- INICIO PETICIÓN ---`);
-  console.log(`Método: ${req.method}`);
-  console.log(`Ruta: ${req.originalUrl}`);
-  console.log(`Body:`, req.body);
   try {
     const email = req.body?.email || req.query?.email || req.headers['x-user-email'];
 
     if (!email) {
-      console.log('Falta el email del usuario');
       return res.status(400).json({ error: 'Falta el email del usuario' });
     }
 
-    // 1. Verificar en on-premise
-    const checkOnPrem = await axios.post(`${ONPREM_BASE_URL}/checkUser`, { email }, axiosConfig);
-    if (checkOnPrem.data.exists === true) {
-      const response = await axios({
-        method: req.method,
-        url: `${ONPREM_BASE_URL}${req.originalUrl}`,
-        headers: req.headers,
-        data: req.body,
-        ...axiosConfig
-      });
-      console.log('--- FIN PETICIÓN (on-premise) ---\n');
-      return res.status(response.status).set(response.headers).send(response.data);
-    }
+    const check = await axios.post(`${ONPREM_BASE_URL}/checkUser`, { email });
+    const userExistsOnPrem = check.data.exists === true;
 
-    // 2. Verificar en GCP
-    const checkGCP = await axios.post(`${GCP_BASE_URL}/checkUser`, { email }, axiosConfig);
-    if (checkGCP.data.exists === true) {
-      const response = await axios({
-        method: req.method,
-        url: `${GCP_BASE_URL}${req.originalUrl}`,
-        headers: req.headers,
-        data: req.body,
-        ...axiosConfig
-      });
-      console.log('--- FIN PETICIÓN (GCP) ---\n');
-      return res.status(response.status).set(response.headers).send(response.data);
-    }
+    const baseUrl = userExistsOnPrem ? ONPREM_BASE_URL : GCP_BASE_URL;
+    const targetUrl = `${baseUrl}${req.path}`;
 
-    console.log('Usuario no encontrado en ningún backend');
-    return res.status(404).json({ error: 'Usuario no encontrado en ningún backend' });
+    const response = await axios({
+      method: req.method,
+      url: targetUrl,
+      headers: req.headers,
+      data: req.body,
+      validateStatus: () => true
+    });
+
+    res.status(response.status).set(response.headers).send(response.data);
 
   } catch (err) {
     if (err.response) {
-      console.log('Error de backend:', err.response.status, err.response.data);
+      // El backend respondió con un error (4xx, 5xx)
       res.status(err.response.status).json(err.response.data);
     } else {
-      console.log('Error interno en el gateway:', err.message);
+      // Error de red u otro error inesperado
       res.status(500).json({ error: 'Error interno en el gateway', message: err.message });
     }
-    console.log('--- FIN PETICIÓN (con error) ---\n');
   }
 });
 
